@@ -1,0 +1,2 @@
+Text from a sample file.
+This text should be displayed when browser is trying to open local files without any path provided.

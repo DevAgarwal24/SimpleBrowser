@@ -1,6 +1,9 @@
 # browser.py
 
+import os
 from url import URL
+
+file = f'{os.path.dirname(os.path.realpath(__file__))}/demo_file.txt'
 
 def show( body ):
     in_tag = False
@@ -18,4 +21,7 @@ def load( url ):
 
 if __name__ == "__main__":
     import sys
-    load( URL( sys.argv[1] ) )
+    if len(sys.argv) > 1:
+        load( URL( sys.argv[1] ) )
+    elif len(sys.argv) == 1:
+        load( URL( f'file://{file}' ))

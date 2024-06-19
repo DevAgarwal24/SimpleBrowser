@@ -6,12 +6,14 @@ import ssl
 class URL:
     def __init__( self, url ):
         self.scheme, url = url.split( "://", 1 )
-        assert self.scheme in [ "http", "https" ]
+        assert self.scheme in [ "http", "https", "file" ]
 
         if self.scheme == "http":
             self.port = 80
         elif self.scheme == "https":
             self.port = 443
+        elif self.scheme == "file":
+            self.port = 8000
 
         if "/" not in url:
             url = url + "/"
@@ -20,6 +22,9 @@ class URL:
         if ":" in self.host:
             self.host, port = self.host.split( ":", 1 )
             self.port = int( port )
+
+        if self.scheme == "file":
+            self.host = "localhost"
 
         self.path = "/" + url
 
