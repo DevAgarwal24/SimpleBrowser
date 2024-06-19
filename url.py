@@ -15,13 +15,22 @@ class URL:
 
         if "/" not in url:
             url = url + "/"
-            
+
         self.host, url = url.split( "/", 1 )
         if ":" in self.host:
             self.host, port = self.host.split( ":", 1 )
             self.port = int( port )
 
         self.path = "/" + url
+
+    def create_header( self ):
+        request = f"GET {self.path} HTTP/1.1\r\n"
+        request += f"Host: {self.host}\r\n"
+        request += f"Connection: close\r\n"
+        request += f"User-Agent: SimpleBrowser/0.1\r\n"
+        request += "\r\n"
+
+        return request
 
     def request( self ):
         s = socket.socket(
@@ -36,10 +45,7 @@ class URL:
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket( s, server_hostname=self.host )
 
-        request = f"GET {self.path} HTTP/1.0\r\n"
-        request += f"Host: {self.host}\r\n"
-        request += "\r\n"
-        s.send( request.encode( "utf8" ) )
+        s.send( self.create_header().encode( "utf8" ) )
 
         response = s.makefile( "r", encoding="utf8", newline="\r\n" )
 
