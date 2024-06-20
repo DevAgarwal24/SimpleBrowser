@@ -2,17 +2,38 @@
 
 import socket
 import ssl
+from enum import Enum
 
 class URL:
-    def __init__( self, url ):
-        self.scheme, url = url.split( "://", 1 )
-        assert self.scheme in [ "http", "https", "file" ]
+    class Scheme(Enum):
+        HTTP = 1
+        HTTPS = 2
+        FILE = 3
+        DATA = 4
 
-        if self.scheme == "http":
+    def __init__( self, url ):
+        self.scheme = None
+        self.port = None
+        self.host = None
+        self.path = None
+        self.data = None
+
+        scheme = url.split( "://", 1 )[0]
+
+        if scheme in [ "http", "https", "file" ]:
+            self.parse_url( scheme, url.split( "://", 1 )[1] )
+        else:
+            self.parse_data( scheme )
+
+    def parse_url( self, scheme, url ):
+        if scheme == "http":
+            self.scheme = self.Scheme.HTTP
             self.port = 80
-        elif self.scheme == "https":
+        elif scheme == "https":
+            self.scheme = self.Scheme.HTTPS
             self.port = 443
-        elif self.scheme == "file":
+        elif scheme == "file":
+            self.scheme = self.Scheme.FILE
             self.port = 8000
 
         if "/" not in url:
@@ -23,10 +44,20 @@ class URL:
             self.host, port = self.host.split( ":", 1 )
             self.port = int( port )
 
-        if self.scheme == "file":
+        if self.scheme == self.Scheme.FILE:
             self.host = "localhost"
 
         self.path = "/" + url
+
+    def parse_data( self, url ):
+        scheme, url = url.split( ":", 1 )
+        media_type, data = url.split( ",", 1 )
+
+        assert scheme in [ "data" ]
+        assert media_type in [ "text/html" ]
+
+        self.scheme = self.Scheme.DATA
+        self.data = data
 
     def create_header( self ):
         request = f"GET {self.path} HTTP/1.1\r\n"
@@ -38,6 +69,9 @@ class URL:
         return request
 
     def request( self ):
+        if self.scheme == self.Scheme.DATA:
+            return self.data + "\r\n"
+
         s = socket.socket(
                 family=socket.AF_INET,
                 type=socket.SOCK_STREAM,
@@ -46,7 +80,7 @@ class URL:
 
         s.connect( ( self.host, self.port ) )
 
-        if self.scheme == "https":
+        if self.scheme == self.Scheme.HTTPS:
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket( s, server_hostname=self.host )
 
