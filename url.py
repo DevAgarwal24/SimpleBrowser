@@ -3,61 +3,75 @@
 import socket
 import ssl
 from enum import Enum
+from urllib.parse import urlparse
 
 class URL:
+
     class Scheme(Enum):
-        HTTP = 1
-        HTTPS = 2
-        FILE = 3
-        DATA = 4
+        HTTP = 'http'
+        HTTPS = 'https'
+        FTP = 'ftp'
+        FILE = 'file'
+        MAILTO = 'mailto'
+        VIEW_SOURCE = 'view-source'
+        DATA = 'data'
+        UNKNOWN = 'unknown'
+
+    scheme_to_enum = {
+        'http': Scheme.HTTP,
+        'https': Scheme.HTTPS,
+        'ftp': Scheme.FTP,
+        'file': Scheme.FILE,
+        'mailto': Scheme.MAILTO,
+        'view-source': Scheme.VIEW_SOURCE,
+        'data': Scheme.DATA,
+    }
 
     def __init__( self, url ):
-        self.scheme = None
-        self.port = None
-        self.host = None
-        self.path = None
-        self.data = None
+        parsed_url = urlparse( url )
+        scheme = parsed_url.scheme
 
-        scheme = url.split( "://", 1 )[0]
+        self.underlying_scheme = None
 
-        if scheme in [ "http", "https", "file" ]:
-            self.parse_url( scheme, url.split( "://", 1 )[1] )
+        self.host = parsed_url.hostname
+        self.port = parsed_url.port
+        self.media = None
+        self.path = parsed_url.path
+
+        if scheme == "view-source":
+            self.scheme = self.Scheme.VIEW_SOURCE
+            underlying_url = url[ len( 'view-source:' ): ]
+            parsed_underlying_url = urlparse(underlying_url)
+            self.underlying_scheme = self.scheme_to_enum.get(parsed_underlying_url.scheme, self.Scheme.UNKNOWN)
+            self.host = parsed_underlying_url.hostname
+            self.port = parsed_underlying_url.port
         else:
-            self.parse_data( scheme )
+            self.scheme = self.scheme_to_enum.get( scheme, self.Scheme.UNKNOWN )
 
-    def parse_url( self, scheme, url ):
-        if scheme == "http":
-            self.scheme = self.Scheme.HTTP
-            self.port = 80
-        elif scheme == "https":
-            self.scheme = self.Scheme.HTTPS
-            self.port = 443
-        elif scheme == "file":
-            self.scheme = self.Scheme.FILE
-            self.port = 8000
+        # Set default ports for http and https if not specified
+        if self.port is None:
+            if self.scheme == self.Scheme.HTTP:
+                self.port = 80
+            elif self.scheme == self.Scheme.HTTPS:
+                self.port = 443
+            elif self.underlying_scheme == self.Scheme.HTTP:
+                self.port = 80
+            elif self.underlying_scheme == self.Scheme.HTTPS:
+                self.port = 443
+            else:
+                self.port = None
 
-        if "/" not in url:
-            url = url + "/"
-
-        self.host, url = url.split( "/", 1 )
-        if ":" in self.host:
-            self.host, port = self.host.split( ":", 1 )
-            self.port = int( port )
-
+        # Set default host and port for FILE scheme
         if self.scheme == self.Scheme.FILE:
-            self.host = "localhost"
-
-        self.path = "/" + url
-
-    def parse_data( self, url ):
-        scheme, url = url.split( ":", 1 )
-        media_type, data = url.split( ",", 1 )
-
-        assert scheme in [ "data" ]
-        assert media_type in [ "text/html" ]
-
-        self.scheme = self.Scheme.DATA
-        self.data = data
+            self.host = 'localhost'
+            self.port = 8000
+        if self.scheme == self.Scheme.DATA:
+            data_parts = parsed_url.path.split(',', maxsplit=1)
+            if len(data_parts) > 1:
+                self.media = data_parts[0]
+                self.path = data_parts[1]
+            else:
+                self.path = data_parts[0]
 
     def create_header( self ):
         request = f"GET {self.path} HTTP/1.1\r\n"
@@ -70,7 +84,7 @@ class URL:
 
     def request( self ):
         if self.scheme == self.Scheme.DATA:
-            return self.data + "\r\n"
+            return self.path + "\r\n"
 
         s = socket.socket(
                 family=socket.AF_INET,

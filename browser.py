@@ -5,13 +5,15 @@ from url import URL
 
 file = f'{os.path.dirname(os.path.realpath(__file__))}/demo_file.txt'
 
-def show( body ):
+def show( body, view_source=False ):
     in_tag = False
     entity = ''
     skip_entity = False
 
     for c in body:
-        if c == '<':
+        if view_source:
+            print( c, end="" )
+        elif c == '<':
             in_tag = True
         elif c == '>':
             in_tag = False
@@ -37,7 +39,10 @@ def show( body ):
 
 def load( url ):
     body = url.request()
-    show( body )
+    if url.scheme == url.Scheme.VIEW_SOURCE:
+        show( body, view_source=True )
+    else:
+        show( body )
 
 if __name__ == "__main__":
     import sys
