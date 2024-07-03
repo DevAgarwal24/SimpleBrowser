@@ -27,6 +27,9 @@ class URL:
         'data': Scheme.DATA,
     }
 
+    redirects = 5
+    timeout = 20
+
     def __init__( self, url ):
         parsed_url = urlparse( url )
         scheme = parsed_url.scheme
@@ -37,6 +40,8 @@ class URL:
         self.port = parsed_url.port
         self.media = None
         self.path = parsed_url.path
+
+        self.socket = None
 
         if scheme == "view-source":
             self.scheme = self.Scheme.VIEW_SOURCE
@@ -73,34 +78,58 @@ class URL:
             else:
                 self.path = data_parts[0]
 
+    def __del__( self ):
+        if self.socket:
+            self.socket.close()
+
     def create_header( self ):
         request = f"GET {self.path} HTTP/1.1\r\n"
         request += f"Host: {self.host}\r\n"
-        request += f"Connection: close\r\n"
+        request += f"Connection: keep-alive\r\n"
+        request += f"Keep-Alive: timeout={URL.timeout}\r\n"
         request += f"User-Agent: SimpleBrowser/0.1\r\n"
         request += "\r\n"
 
         return request
 
+    def receive_data( self, response, content_length ):
+        data = ''
+        bytes_read = 0
+        buffer_size = 4096  # Adjust as necessary
+
+        while bytes_read < content_length:
+            chunk = response.read(min(buffer_size, content_length - bytes_read))
+            if not chunk:
+                break  # End of file or no more data
+            data += chunk
+            bytes_read += len(chunk)
+
+        return data
+
     def request( self ):
         if self.scheme == self.Scheme.DATA:
             return self.path + "\r\n"
 
-        s = socket.socket(
-                family=socket.AF_INET,
-                type=socket.SOCK_STREAM,
-                proto=socket.IPPROTO_TCP,
-            )
-
-        s.connect( ( self.host, self.port ) )
+        if self.scheme == self.Scheme.UNKNOWN:
+            print("path is invalid")
+            return
+        elif not self.socket:
+            self.socket = socket.socket(
+                    family=socket.AF_INET,
+                    type=socket.SOCK_STREAM,
+                    proto=socket.IPPROTO_TCP,
+                )
+            self.socket.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.socket.settimeout( URL.timeout )
+            self.socket.connect( ( self.host, self.port ) )
 
         if self.scheme == self.Scheme.HTTPS:
             ctx = ssl.create_default_context()
-            s = ctx.wrap_socket( s, server_hostname=self.host )
+            self.socket = ctx.wrap_socket( self.socket, server_hostname=self.host )
 
-        s.send( self.create_header().encode( "utf8" ) )
+        self.socket.send( self.create_header().encode( "utf8" ) )
 
-        response = s.makefile( "r", encoding="utf8", newline="\r\n" )
+        response = self.socket.makefile( "r", encoding="utf8", newline="\r\n" )
 
         statusline = response.readline()
         version, status, explanation = statusline.split( " ", 2 )
@@ -112,10 +141,28 @@ class URL:
             header, value = line.split( ":", 1 )
             response_headers[ header.casefold() ] = value.strip()
 
+        if URL.redirects and status == "301":
+            URL.redirects -= 1
+            new_url = response_headers[ 'location' ]
+            url_obj = URL(new_url)
+            if url_obj.scheme == self.Scheme.UNKNOWN:
+                self.path = new_url
+            elif url_obj.host == self.host:
+                self.path = url_obj.path
+            else:
+                return url_obj.request()
+
+            return self.request()
+
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
+        assert "content-length" in response_headers
 
-        content = response.read()
-        s.close()
+        read_bytes = int( response_headers[ 'content-length' ] )
+
+        content = self.receive_data(response, read_bytes)
+
+        if response_headers[ 'connection' ] != "Keep-Alive":
+            self.socket.close()
 
         return content
