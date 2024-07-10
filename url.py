@@ -4,6 +4,14 @@ import socket
 import ssl
 from enum import Enum
 from urllib.parse import urlparse
+import os
+import hashlib
+
+cache_dir = "cache"
+
+def get_cache_file(url):
+    hashed_url = hashlib.md5(url.encode()).hexdigest()
+    return os.path.join(cache_dir, hashed_url)
 
 class URL:
 
@@ -123,6 +131,11 @@ class URL:
             self.socket.settimeout( URL.timeout )
             self.socket.connect( ( self.host, self.port ) )
 
+        cache_file = get_cache_file( str(self.scheme) + self.host + self.path)
+        if os.path.exists( cache_file ):
+            with open( cache_file, 'r' ) as f:
+                return f.read()
+
         if self.scheme == self.Scheme.HTTPS:
             ctx = ssl.create_default_context()
             self.socket = ctx.wrap_socket( self.socket, server_hostname=self.host )
@@ -162,7 +175,17 @@ class URL:
 
         content = self.receive_data(response, read_bytes)
 
-        if response_headers[ 'connection' ] != "Keep-Alive":
+        if status == "200" and (
+            "cache-control" not in response_headers or
+            (
+                "no-store" not in response_headers['cache-control'] and
+                "max-age" not in response_headers['cache-control']
+            )
+        ):
+            with open( cache_file, 'w' ) as f:
+                f.write( content )
+
+        if 'connection' in response_headers and response_headers[ 'connection' ] != "Keep-Alive":
             self.socket.close()
 
         return content
